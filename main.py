@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, time
 from random import randint
 
 from vkbottle import API, PhotoWallUploader, PhotoMessageUploader, Keyboard
@@ -16,6 +17,10 @@ api = API(token=USER_TOKEN)
 group_id = 196150271
 photo_message_uploader = PhotoMessageUploader(bot.api, generate_attachment_strings=True)
 photo_wall_uploader = PhotoWallUploader(api, generate_attachment_strings=True)
+
+timestamp = int(open('timestamp.txt', 'r').read())
+low_time = time(12, 0, 0)
+high_time = time(23, 59, 59)
 
 
 class Fields:
@@ -39,20 +44,28 @@ class MenuState(BaseStateGroup):
 
 @bot.on.private_message(text="Опубликовать")
 async def post_artchive(message: Message):
+    global timestamp
     peer_id = str(message.peer_id)
-    print(message.payload)
-    print('{"id":"' + ADMINS[peer_id].payload + '"}')
     if message.payload == '{"id":"' + ADMINS[peer_id].payload + '"}':
         ADMINS[peer_id].payload = "0"
         http = AiohttpClient()
         try:
-            print(await api.wall.post(owner_id=-group_id,
-                                      message=f"{ADMINS[peer_id].author} — \"{ADMINS[peer_id].title}\"\n\n{ADMINS[peer_id].year}",
-                                      attachments=[await photo_wall_uploader.upload(
-                                                   path_like=await http.request_content("get", ADMINS[peer_id].photo),
-                                                   owner_id=-group_id)],
-                                      publish_date=1612961602))
-            await message.answer("&#9989; Пост успешно опубликован.")
+            await api.wall.post(owner_id=-group_id,
+                                message=f"{ADMINS[peer_id].author} — "
+                                        f"\"{ADMINS[peer_id].title}\"\n"
+                                        f"\n{ADMINS[peer_id].year}",
+                                attachments=[await photo_wall_uploader.upload(
+                                    path_like=await http.request_content("get", ADMINS[peer_id].photo),
+                                    owner_id=-group_id)],
+                                publish_date=timestamp)
+            timestamp += randint(7000, 11000)
+            timestamp_time = datetime.fromtimestamp(timestamp).time()
+            while low_time > timestamp_time or timestamp_time > high_time:
+                timestamp += 3600
+                timestamp_time = datetime.fromtimestamp(timestamp).time()
+            open('timestamp.txt', 'w').write(str(timestamp))
+            await message.answer("&#9989; Пост успешно опубликован.\n"
+                                 "Следующий пост ")
         except:
             await message.answer("&#10060; Ошибка при публикации поста.")
         await http.close()
@@ -63,17 +76,37 @@ async def post_artchive(message: Message):
 @bot.on.private_message(state=None)
 @bot.on.private_message(state=MenuState.LINK)
 async def message_handler(message: Message):
-    if message.text.find("artchive.ru") != -1:
-        if message.text.find("works/") != -1:
-            if await parse_artchive(str(message.peer_id), message.text):
-                await bot.state_dispenser.set(message.peer_id, MenuState.LINK)
-                await message_artchive(str(message.peer_id))
+    if message.text.find("http") != -1:
+        if message.text.find("artchive.ru") != -1:
+            if message.text.find("works/") != -1:
+                if await parse_artchive(str(message.peer_id), message.text):
+                    await bot.state_dispenser.set(message.peer_id, MenuState.LINK)
+                    await message_artchive(str(message.peer_id))
+                else:
+                    await message.answer("&#10060; Произошла ошибка.")
             else:
-                await message.answer("&#10060; Произошла ошибка.")
+                await message.answer("&#10060; Произошла ошибка. \n"
+                                     "(Ссылка ведёт на артхив, но не на работу художника.)")
+        elif message.text.find("artstation") != -1:
+            if message.text.find("artwork/") != -1:
+                if await parse_artstation(str(message.peer_id), message.text):
+                    await bot.state_dispenser.set(message.peer_id, MenuState.LINK)
+                    await message_artstation(str(message.peer_id))
+            else:
+                await message.answer("&#10060; Произошла ошибка. \n"
+                                     "(Ссылка ведёт на artstation, но не на работу художника.)")
         else:
-            await message.answer("&#10060; Произошла ошибка. \n(Ссылка ведёт на Artchive, но не на работу художника.)")
+            await message.answer("&#10060; Неизвестный источник.\n\nВот список всех доступных:"
+                                 "\n1. artchive.ru")
     else:
-        await message.answer("&#10060; Неизвестный источник.\nВот список всех доступных:")
+        date = datetime.fromtimestamp(timestamp)
+        if date.day == datetime.today().day:
+            await message.answer(f"Ближайший пост сегодня в {date.timetz()}")
+        elif date.day == datetime.today().day-1:
+            await message.answer(f"Ближайший пост завтра в {date.timetz()}")
+        else:
+            await message.answer(f"Ближайший пост {date.strftime('%d.%m')}"
+                                 f" в {date.strftime('%H:%M')}")
 
 
 async def message_artchive(peer_id):
@@ -101,7 +134,10 @@ async def parse_artchive(peer_id, url):
         ADMINS[peer_id].url = str(BeautifulSoup(await http.request_text("get", url), 'html.parser'))
         await http.close()
         ADMINS[peer_id].author = str(BeautifulSoup(ADMINS[peer_id].url, 'html.parser').find('span', 'zoom-in iblock'))
-        ADMINS[peer_id].photo = str(BeautifulSoup(ADMINS[peer_id].author, 'html.parser').find('img')['data-src'])
+        try:
+            ADMINS[peer_id].photo = str(BeautifulSoup(ADMINS[peer_id].author, 'html.parser').find('img')['src'])
+        except:
+            ADMINS[peer_id].photo = str(BeautifulSoup(ADMINS[peer_id].author, 'html.parser').find('img')['data-src'])
         ADMINS[peer_id].author = str(BeautifulSoup(ADMINS[peer_id].author, 'html.parser').find('img')['title'])
         ADMINS[peer_id].title = ADMINS[peer_id].author[ADMINS[peer_id].author.find(".") + 2:]
         ADMINS[peer_id].author = ADMINS[peer_id].author[:ADMINS[peer_id].author.find(".")]
@@ -112,7 +148,8 @@ async def parse_artchive(peer_id, url):
                                          ADMINS[peer_id].author[ADMINS[peer_id].author.rfind(" "):]
         ADMINS[peer_id].year = str(BeautifulSoup(ADMINS[peer_id].url, 'html.parser').find \
                                        ('div', 'item-info').get_text())
-        if ADMINS[peer_id].year.count(",") == 0:
+        if (ADMINS[peer_id].year.count(",") == 0) or \
+           (ADMINS[peer_id].year.count(",") == 1 and ADMINS[peer_id].year.count("см") == 1):
             ADMINS[peer_id].year = ""
         else:
             ADMINS[peer_id].year = ADMINS[peer_id].year[ADMINS[peer_id].year.find(" ") + 1:]
@@ -125,5 +162,60 @@ async def parse_artchive(peer_id, url):
     except:
         return False
 
+
+async def message_artstation(peer_id):
+    http = AiohttpClient()
+    ADMINS[peer_id].payload = str(randint(1, 1000))
+    await bot.api.messages.send(group_id=group_id,
+                                peer_id=peer_id,
+                                message=f"{ADMINS[peer_id].author} — \"{ADMINS[peer_id].title}\"\n\n{ADMINS[peer_id].year}",
+                                attachment=await photo_message_uploader.upload(
+                                           path_like=await http.request_content("get", ADMINS[peer_id].photo),
+                                           peer_id=int(peer_id)),
+                                keyboard=(Keyboard(inline=True).schema([[{
+                                          "label": "Опубликовать",
+                                          "type": "text",
+                                          "color": "positive",
+                                          "payload": '{"id": 'f'"{ADMINS[peer_id].payload}"''}'}
+                                          ]]).get_json()),
+                                random_id=randint(100, 10000))
+    await http.close()
+
+
+async def parse_artstation(peer_id, url):
+    try:
+        http = AiohttpClient()
+        ADMINS[peer_id].url = str(BeautifulSoup(await http.request_text("get", url), 'html.parser'))
+        await http.close()
+        print(ADMINS[peer_id].url)
+        ADMINS[peer_id].author = str(BeautifulSoup(ADMINS[peer_id].url, 'html.parser').find("div", class_="artwork-info ps-container"))
+        print(ADMINS[peer_id].author)
+        try:
+            ADMINS[peer_id].photo = str(BeautifulSoup(ADMINS[peer_id].author, 'html.parser').find('img')['src'])
+        except:
+            ADMINS[peer_id].photo = str(BeautifulSoup(ADMINS[peer_id].author, 'html.parser').find('img')['data-src'])
+        ADMINS[peer_id].author = str(BeautifulSoup(ADMINS[peer_id].author, 'html.parser').find('img')['title'])
+        ADMINS[peer_id].title = ADMINS[peer_id].author[ADMINS[peer_id].author.find(".") + 2:]
+        ADMINS[peer_id].author = ADMINS[peer_id].author[:ADMINS[peer_id].author.find(".")]
+        if ADMINS[peer_id].author.count(" ") == 2:
+            if ADMINS[peer_id].author.find(" фон ") == -1 & ADMINS[peer_id].author.find(" де ") == -1 & \
+                    ADMINS[peer_id].author.find(" Ван ") == -1:
+                ADMINS[peer_id].author = ADMINS[peer_id].author[:ADMINS[peer_id].author.find(" ")] + \
+                                         ADMINS[peer_id].author[ADMINS[peer_id].author.rfind(" "):]
+        ADMINS[peer_id].year = str(BeautifulSoup(ADMINS[peer_id].url, 'html.parser').find \
+                                       ('div', 'item-info').get_text())
+        if (ADMINS[peer_id].year.count(",") == 0) or \
+           (ADMINS[peer_id].year.count(",") == 1 and ADMINS[peer_id].year.count("см") == 1):
+            ADMINS[peer_id].year = ""
+        else:
+            ADMINS[peer_id].year = ADMINS[peer_id].year[ADMINS[peer_id].year.find(" ") + 1:]
+            if ADMINS[peer_id].year.count(",") >= 1:
+                ADMINS[peer_id].year = ADMINS[peer_id].year[:ADMINS[peer_id].year.find(",")]
+            if ADMINS[peer_id].year.find("е") == -1:
+                if ADMINS[peer_id].year != "":
+                    ADMINS[peer_id].year += " г."
+        return True
+    except:
+        return False
 
 bot.run_forever()
