@@ -1,7 +1,8 @@
 import os
 from datetime import datetime, time
 from random import randint
-
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
 from vkbottle import API, PhotoWallUploader, PhotoMessageUploader, Keyboard
 from dotenv import load_dotenv
 from vkbottle import AiohttpClient
@@ -21,7 +22,7 @@ photo_wall_uploader = PhotoWallUploader(api, generate_attachment_strings=True)
 timestamp = int(open('timestamp.txt', 'r').read())
 low_time = time(12, 0, 0)
 high_time = time(23, 59, 59)
-
+print("Hello world")
 
 class Fields:
     url = "0"
@@ -64,9 +65,11 @@ async def post_artchive(message: Message):
                 timestamp += 3600
                 timestamp_time = datetime.fromtimestamp(timestamp).time()
             open('timestamp.txt', 'w').write(str(timestamp))
+            date = datetime.fromtimestamp(timestamp)
             await message.answer("&#9989; Пост успешно опубликован.\n"
-                                 "Следующий пост ")
-        except:
+                                 f"Следующий пост {date.strftime('%d.%m')} в {date.strftime('%H:%M')}")
+        except Exception as err:
+            print(err)
             await message.answer("&#10060; Ошибка при публикации поста.")
         await http.close()
     else:
@@ -184,9 +187,11 @@ async def message_artstation(peer_id):
 
 async def parse_artstation(peer_id, url):
     try:
-        http = AiohttpClient()
-        ADMINS[peer_id].url = str(BeautifulSoup(await http.request_text("get", url), 'html.parser'))
-        await http.close()
+        options = Options()
+        browser = webdriver.Chrome(executable_path=r'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe', options=options)
+        print(1)
+        print(BeautifulSoup(browser.get(url).page_source, 'html.parser'))
+        print(2)
         print(ADMINS[peer_id].url)
         ADMINS[peer_id].author = str(BeautifulSoup(ADMINS[peer_id].url, 'html.parser').find("div", class_="artwork-info ps-container"))
         print(ADMINS[peer_id].author)
